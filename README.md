@@ -93,46 +93,6 @@ DMtools-VMware-vCenter-Inventory-Tool/
 
 ---
 
-## ✅ Creating the GitHub project (step‑by‑step)
-
-### Option A — GitHub web UI
-1. Go to **GitHub → New repository**.
-2. Set **Repository name** to: `DMtools-VMware-vCenter-Inventory-Tool`.
-3. **Description:** “PowerShell inventory/reporting for VMware vCenter — exports multi‑tab Excel.”
-4. Choose **Public** (or Private per policy).
-5. Tick **Add a README** (we’ll replace it) and **Add .gitignore** → *None* (we provide our own).
-6. Click **Create repository**.
-7. Upload the following files (drag‑and‑drop on the repo home page):
-   - `DMTools.ps1`
-   - `README.md`
-   - `LICENSE`
-   - `.gitignore`
-8. Commit the changes.
-
-### Option B — Git on your machine
-```bash
-# 1) One‑time: set your identity
-git config --global user.name "Your Name"
-git config --global user.email "you@example.com"
-
-# 2) Create the repo locally
-mkdir DMtools-VMware-vCenter-Inventory-Tool
-cd DMtools-VMware-vCenter-Inventory-Tool
-copy /Y ..\DMTools.ps1 DMTools.ps1   # or move the file here
-# (also place README.md, LICENSE, .gitignore)
-
-git init
-git add .
-git commit -m "Initial commit: DMtools PowerShell inventory tool"
-
-# 3) Create a repo on GitHub, then connect and push
-git remote add origin https://github.com/<your-org-or-user>/DMtools-VMware-vCenter-Inventory-Tool.git
-git branch -M main
-git push -u origin main
-```
-
----
-
 ## 🔄 Recommended: basic CI and style checks
 
 You can add a GitHub Actions workflow later to lint the script with
@@ -161,18 +121,6 @@ Commit the signed file and publish a tagged release (see below).
   (PowerCLI/PowerShell versions, vCenter version, error text).
 - PRs are welcome. Please run PSScriptAnalyzer and include a sample of the Excel output.  
 - This project follows the **MIT License** (see `LICENSE`).
-
----
-
-## 🧾 Release & versioning
-
-1. Update the version in the script header.
-2. Create a tag:
-   ```bash
-   git tag -a v1.0.0 -m "First stable release"
-   git push origin v1.0.0
-   ```
-3. Create a GitHub **Release** and attach a sample redacted workbook if helpful.
 
 ---
 
