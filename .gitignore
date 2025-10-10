@@ -1,0 +1,31 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Python / notebooks (if docs or examples use them)
+__pycache__/
+.ipynb_checkpoints/
+
+# PowerShell & tooling
+*.pshistory
+*.ps1xml
+
+# Output artifacts
+*.xlsx
+*.csv
+*.log
+*.tmp
+*.bak
+
+# Editor folders
+.vscode/
+.idea/
+
+# Node tooling (if you add docs tooling later)
+node_modules/
+
+# Archives
+*.zip
+*.7z
+*.tar
+*.gz
