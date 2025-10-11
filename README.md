@@ -24,7 +24,7 @@ PowerShell-based inventory tool for **VMware vCenter** environments. It collects
 
 > See the script header for the full list of worksheets and fields.
 >
-> ![Alt text for accessibility](ScripitExecution.png)
+> ![Alt text for accessibility](ScriptExecution.png)
 
 ---
 
