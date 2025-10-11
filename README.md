@@ -1,6 +1,6 @@
 # DMtools — VMware vCenter Inventory Tool
 
-PowerShell-based inventory tool for **VMware vCenter** environments. It collects rich metadata across clusters, hosts, VMs, datastores, networking (VSS/vDS), policies, snapshots, tags, and more — and outputs human-friendly reports.
+PowerShell-based inventory tool for **VMware vCenter** environments. It collects data across clusters, hosts, VMs, datastores, networking (VSS/vDS), policies, snapshots, tags, and more — and outputs human-friendly reports.
 
 > **Background & motivation**  
 > DMtools was inspired by a popular executable-based VMware inventory utility. However, many high-security/locked-down environments prohibit running unsigned executables. By delivering an **auditable PowerShell script**, DMtools offers similar capabilities while allowing **source review**, change control, and easier security approval.
@@ -89,16 +89,6 @@ DMtools-VMware-vCenter-Inventory-Tool/
 └─ .gitignore                # Ignore build artifacts and exports
 ```
 
-> Tip: Add a `docs/` folder later for screenshots, example workbooks, and field dictionaries.
-
----
-
-## 🔄 Recommended: basic CI and style checks
-
-You can add a GitHub Actions workflow later to lint the script with
-[PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer) and to test `ImportExcel` calls.
-This helps keep contributions consistent and secure.
-
 ---
 
 ## 🔏 Code signing (optional but recommended)
@@ -110,10 +100,6 @@ If your org requires signed scripts:
 $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
 Set-AuthenticodeSignature -FilePath .\DMTools.ps1 -Certificate $cert
 ```
-
-Commit the signed file and publish a tagged release (see below).
-
----
 
 ## 🐞 Issues & contributions
 
