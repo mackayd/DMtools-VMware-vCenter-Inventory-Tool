@@ -23,6 +23,8 @@ PowerShell-based inventory tool for **VMware vCenter** environments. It collects
 - Installs missing dependencies (current user scope) on first run.
 
 > See the script header for the full list of worksheets and fields.
+>
+> ![Alt text for accessibility](ScripitExecution.png)
 
 ---
 
