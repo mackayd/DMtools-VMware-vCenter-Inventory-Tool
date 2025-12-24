@@ -30,7 +30,8 @@ PowerShell-based inventory tool for **VMware vCenter** environments. It collects
 
 ## 📦 Requirements
 
-- Windows with **PowerShell 5.1+** (Windows PowerShell) or **PowerShell 7+**.
+- Windows with **PowerShell 7+**
+  - using **PowerShell 5.1+** (Windows PowerShell) may display yellow 'command Depreicated' warnings
 - Network access to your vCenter Server.
 - Privileges sufficient to read inventory across the desired scope.
 - The following PowerShell modules will be installed automatically if missing:
@@ -52,7 +53,7 @@ PSGallery mirror.
    ```
 3. Run the tool:
    ```powershell
-   # Windows PowerShell 5.1 or PowerShell 7+
+   # PowerShell 7+
    .\DMTools.ps1
    ```
 4. When prompted:
