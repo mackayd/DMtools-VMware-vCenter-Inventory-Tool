@@ -77,7 +77,7 @@ function Get-ExcelFilePath-GUI {
     }
 }
 
-Test-Module -ModuleName VMware.PowerCLI
+Test-Module -ModuleName VCF.PowerCLI
 Test-Module -ModuleName ImportExcel
 Test-Module -ModuleName psInlineProgress
 Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false -InvalidCertificateAction Ignore -DisplayDeprecationWarnings $false | Out-Null
