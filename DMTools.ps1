@@ -2377,22 +2377,32 @@ function Get-vDatastore {
     Write-InlineProgress -Activity 'vDatastore Processed' -Complete -ProgressCharacter ([char]9632) -ProgressFillCharacter ([char]9632) -ProgressFill ([char]183) -BarBracketStart $null -BarBracketEnd $null
 }
 
-
 function Get-VmwOrphan {
     param($Datastores, $about)
+
     $flags = New-Object VMware.Vim.FileQueryFlags
     $flags.FileSize = $true
     $flags.Modification = $true
+
     $generic = New-Object VMware.Vim.FileQuery
+
     $searchSpec = New-Object VMware.Vim.HostDatastoreBrowserSearchSpec
-    $searchSpec.Query = $generic
+    $searchSpec.Query = @($generic)
     $searchSpec.Details = $flags
-    $searchSpec.MatchPattern = @('*.vmdk', '*.vmx')
-    
-    $total = $datastores.Count
+    $searchSpec.MatchPattern = @(
+        '*.vmx',
+        '*.vmdk',
+        '*-flat.vmdk',
+        '*-delta.vmdk',
+        '*-ctk.vmdk'
+    )
+
+    $total = $Datastores.Count
     $i = 0
+
     foreach ($ds in $Datastores) {
         $i++
+
         Write-InlineProgress -Activity "Collecting vZombie $i of $total datastores" `
             -PercentComplete ([int](($i / $total) * 100)) `
             -ProgressCharacter ([char]9632) `
@@ -2400,54 +2410,69 @@ function Get-VmwOrphan {
             -ProgressFill ([char]183) `
             -BarBracketStart $null `
             -BarBracketEnd $null
-        if (($ds.Type -in 'VMFS', 'vsan') -and $ds.ExtensionData.Summary.MultipleHostAccess) {
 
-               
+        if (($ds.Type -in @('VMFS', 'vsan')) -and $ds.ExtensionData.Summary.MultipleHostAccess) {
 
             $browser = Get-View $ds.ExtensionData.Browser
-            $rootPath = '[' + $ds.Name + ']'
+            $rootPath = "[{0}]" -f $ds.Name
 
-            # ----- Build hash-set of all files referenced by VMs/Templates -----
+            # Build hash-set of files referenced by VMs/templates
             $vmFiles = @{}
-            Get-VM -Datastore $ds -ErrorAction SilentlyContinue | ForEach-Object {
-                $view = Get-View $_.Id
-                $view.LayoutEx.File | ForEach-Object {
-                    $_.Name.ToLower() | ForEach-Object { $vmFiles[$_] = $true }
+
+            foreach ($obj in @(
+                (Get-VM -Datastore $ds -ErrorAction SilentlyContinue)
+                (Get-Template -Datastore $ds -ErrorAction SilentlyContinue)
+            ) | Where-Object { $_ }) {
+
+                try {
+                    $view = Get-View $obj.Id -ErrorAction Stop
+                    foreach ($file in ($view.LayoutEx.File | Where-Object { $_.Name })) {
+                        $name = $file.Name.ToLower()
+
+                        # normalize duplicate slashes
+                        $name = $name -replace '(?<!:)/{2,}', '/'
+
+                        $vmFiles[$name] = $true
+                    }
                 }
-            }
-            Get-Template -Datastore $ds -ErrorAction SilentlyContinue | ForEach-Object {
-                $view = Get-View $_.Id
-                $view.LayoutEx.File | ForEach-Object {
-                    $_.Name.ToLower() | ForEach-Object { $vmFiles[$_] = $true }
+                catch {
                 }
             }
 
-
-            # ----- Enumerate every folder & file on the datastore -----
+            # Enumerate datastore contents
             $result = $browser.SearchDatastoreSubFolders($rootPath, $searchSpec)
 
-            foreach ($folder in $result) {
-                foreach ($f in $folder.File) {
-                    $full = "$($folder.FolderPath)/$($f.Path)"
-                    if (-not $vmFiles.ContainsKey($full.ToLower())) {
-                        # ------ OUTPUT orphaned file object ------
-                        [pscustomobject]@{
-                            Datastore       = $ds.Name
-                            FilePath        = $full
-                            FileSizeGB      = [math]::Round($f.FileSize / 1GB, 2)
-                            Modified        = $f.Modification
-                            "VI SDK Server" = $about.FullName
-                            "VI SDK UUID"   = $about.InstanceUuid
+            if ($result) {
+                foreach ($folder in $result) {
+                    foreach ($f in ($folder.File | Where-Object { $_ })) {
 
+                        # FolderPath already usually ends with /
+                        $full = "{0}{1}" -f $folder.FolderPath, $f.Path
+                        $full = $full.ToLower() -replace '(?<!:)/{2,}', '/'
+
+                        if (-not $vmFiles.ContainsKey($full)) {
+                            [pscustomobject]@{
+                                Datastore       = $ds.Name
+                                FilePath        = $full
+                                FileSizeGB      = if ($null -ne $f.FileSize) { [math]::Round($f.FileSize / 1GB, 2) } else { $null }
+                                Modified        = $f.Modification
+                                'VI SDK Server' = $about.FullName
+                                'VI SDK UUID'   = $about.InstanceUuid
+                            }
                         }
                     }
                 }
             }
         }
     }
-    Write-InlineProgress -Activity 'vZombie Processed' -Complete -ProgressCharacter ([char]9632) -ProgressFillCharacter ([char]9632) -ProgressFill ([char]183) -BarBracketStart $null -BarBracketEnd $null
-}
 
+    Write-InlineProgress -Activity 'vZombie Processed' -Complete `
+        -ProgressCharacter ([char]9632) `
+        -ProgressFillCharacter ([char]9632) `
+        -ProgressFill ([char]183) `
+        -BarBracketStart $null `
+        -BarBracketEnd $null
+}
 
 function Get-vLicense {
     param($about)
