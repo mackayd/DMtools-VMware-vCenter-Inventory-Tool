@@ -10,51 +10,10 @@
 
     Key features:
     - Checks for and installs required modules: VMware.PowerCLI, ImportExcel, psInlineProgress.
-    - Provides a guided console prompt flow with section headers and coloured output for export and connection options.
-    - Prompts whether export redaction is required before asking any detailed redaction questions.
-    - Supports optional redaction of:
-        - VM names
-        - VM FQDN domain suffixes
-        - IP addresses
-        - ESXi / vCenter resource names
-        - ESXi / vCenter FQDN domain suffixes
-    - Preserves vCLS VM names from VM-name redaction.
-    - Applies redaction safely with logic to avoid corrupting non-IP/non-FQDN values such as:
-        - MAC addresses
-        - API version strings
-        - Change Version values / timestamps
     - Prompts for vCenter address and credentials, and allows the user to select the Excel export location via a GUI dialog.
-    - Connects to vCenter and collects data on:
-        - VM inventory / summary information
-        - CPU
-        - memory
-        - disks
-        - partitions
-        - SCSI
-        - network
-        - floppy
-        - CD/DVD
-        - snapshots
-        - VMware Tools
-        - resource pools
-        - clusters
-        - hosts
-        - HBAs
-        - physical NICs
-        - vSwitches
-        - port groups
-        - distributed switches
-        - distributed port groups / ports
-        - VMkernel adapters
-        - datastores
-        - orphaned files
-        - licenses
-        - recent health alarms
-    - Includes templates in VM-related inventory tabs alongside standard VMs.
-    - Uses cached platform-wide VMware Tools version detection so the Required Version field reflects the infrastructure baseline.
-    - Marks VMware Tools Required Version as 'Unmanaged' where the guest reports guestToolsUnmanaged.
+    - Connects to vCenter, collects data on VMs, CPU, memory, disks, partitions, SCSI, network, floppy, CD, snapshots, VMware Tools, resource pools, clusters, hosts, HBAs, NICs, vSwitches, port groups, distributed switches, VMkernel adapters, datastores, orphaned files, licenses, and recent health alarms.
     - Displays progress bars for each data collection phase.
-    - Exports all data to a single Excel workbook with multiple worksheets using the ImportExcel module.
+    - Exports all data to a single Excel file with multiple worksheets, using the ImportExcel module.
     - Disconnects from vCenter upon completion.
 
 .PARAMETER vCenter
@@ -77,7 +36,7 @@
     https://github.com/mackayd
 
 .VERSION
-    1.2
+    1.1
 
 .LICENSE
     MIT License
@@ -87,9 +46,7 @@
 param(
     [switch]$RedactVMNames,
     [switch]$RedactFqdnDomain,
-    [switch]$RedactIPAddresses,
-    [switch]$RedactInfraNames,
-    [switch]$RedactInfraFqdnDomain
+    [switch]$RedactIPAddresses
 )
 # ---- SETUP AND MODULES ----
 
@@ -165,162 +122,33 @@ function Read-RedactionChoice {
 }
 
 function Remove-FqdnDomain {
-    param(
-        [AllowNull()]
-        [string]$Value
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return $Value
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $Value }
+    if ($Value -match '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$') {
+        return ($Value -split '\.')[0]
     }
-
-    $trimmed = $Value.Trim()
-
-    # Do not touch IPv4
-    if ($trimmed -match '^(?:\d{1,3}\.){3}\d{1,3}$') {
-        return $Value
-    }
-
-    # Do not touch IPv6
-    if ($trimmed -match ':') {
-        return $Value
-    }
-
-    # Do not touch dotted numeric version strings like 8.0.3.0
-    if ($trimmed -match '^\d+(?:\.\d+)+$') {
-        return $Value
-    }
-
-    # Only strip domain from likely FQDN values:
-    # must contain at least one dot and at least one alphabetic character
-    if (($trimmed -match '\.') -and ($trimmed -match '[A-Za-z]')) {
-        return ($trimmed -replace '\..*$','')
-    }
-
     return $Value
 }
 
-function Protect-IPAddresses {
+function Mask-IPAddresses {
     param([string]$Value)
-
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        return $Value
-    }
-
-    $masked = $Value
-
-    # Mask IPv4
-    $masked = $masked -replace '(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)', '[REDACTED-IPV4]'
-
-    # Find colon-containing candidates, but only replace them if they are real IPv6 addresses
-    $masked = [regex]::Replace(
-        $masked,
-        '(?i)(?<![0-9A-Za-z])([0-9A-Fa-f:.%]+:[0-9A-Fa-f:.%]*)(?![0-9A-Za-z])',
-        {
-            param($m)
-
-            $candidate = $m.Groups[1].Value.Trim()
-
-            # Skip MAC addresses
-            if ($candidate -match '^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$' -or
-                $candidate -match '^(?:[0-9A-Fa-f]{2}-){5}[0-9A-Fa-f]{2}$' -or
-                $candidate -match '^(?:[0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4}$') {
-                return $candidate
-            }
-
-            $ip = $null
-            if ([System.Net.IPAddress]::TryParse($candidate, [ref]$ip)) {
-                if ($ip.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6) {
-                    return '[REDACTED-IPV6]'
-                }
-            }
-
-            return $candidate
-        }
-    )
-
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $Value }
+    $masked = $Value -replace '(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)', '[REDACTED-IPV4]'
+    $masked = $masked -replace '(?i)\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b', '[REDACTED-IPV6]'
     return $masked
-}
-function Test-SkipFqdnRedaction {
-    param([string]$ColumnName)
-
-    if ([string]::IsNullOrWhiteSpace($ColumnName)) {
-        return $false
-    }
-
-    $skipColumns = @(
-        'VI SDK Server',
-        'VI SDK API Version',
-        'Change Version'
-    )
-
-    return $ColumnName -in $skipColumns
-}
-
-function Test-SkipIPRedaction {
-    param([string]$ColumnName)
-
-    if ([string]::IsNullOrWhiteSpace($ColumnName)) {
-        return $false
-    }
-
-    $skipColumns = @(
-        'VI SDK API Version',
-        'Change Version',
-        'VI SDK Server'
-    )
-
-    return ($ColumnName -in $skipColumns)
 }
 
 function New-VMRedactionMap {
     param($vms)
     $map = @{}
     $index = 1
-    foreach ($vmName in ($vms | Select-Object -ExpandProperty Name | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)) {
-        if ($vmName -match '^(?i)vCLS') { continue }
+    foreach ($vmName in ($vms | Select-Object -ExpandProperty Name | Sort-Object -Unique)) {
         $map[$vmName] = ('VM-REDACTED-{0:D4}' -f $index)
         $index++
     }
     return $map
 }
 
-function New-InfrastructureRedactionMap {
-    param(
-        [string[]]$EsxiNames,
-        [string]$VCenterName
-    )
-
-    $map = @{}
-
-    $vcIndex = 1
-    foreach ($name in @($VCenterName) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique) {
-        $short = $name
-        if ($short -match '^[^.]+') { $short = $matches[0] }
-
-        foreach ($candidate in @($name, $short) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique) {
-            if (-not $map.ContainsKey($candidate)) {
-                $map[$candidate] = ('VCENTER-REDACTED-{0:D4}' -f $vcIndex)
-            }
-        }
-        $vcIndex++
-    }
-
-    $esxIndex = 1
-    foreach ($name in @($EsxiNames) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique) {
-        $short = $name
-        if ($short -match '^[^.]+') { $short = $matches[0] }
-
-        foreach ($candidate in @($name, $short) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique) {
-            if (-not $map.ContainsKey($candidate)) {
-                $map[$candidate] = ('ESXI-REDACTED-{0:D4}' -f $esxIndex)
-            }
-        }
-        $esxIndex++
-    }
-
-    return $map
-}
 
 function Invoke-Redaction {
     param(
@@ -330,7 +158,6 @@ function Invoke-Redaction {
         [Parameter(Mandatory = $true)]
         [hashtable]$Config,
         [hashtable]$VMNameMap,
-        [hashtable]$InfraNameMap,
         [string[]]$VMNameSheets
     )
 
@@ -347,14 +174,11 @@ function Invoke-Redaction {
 
             if ($Config.RedactVMNames -and $name -eq 'Name' -and ($VMNameSheets -contains $SheetName)) {
                 $vmName = [string]$value
-                if ($vmName -match '^(?i)vCLS') {
-                    $prop.Value = $vmName
-                }
-                elseif ($VMNameMap.ContainsKey($vmName)) {
+                if ($VMNameMap.ContainsKey($vmName)) {
                     $prop.Value = $VMNameMap[$vmName]
                 }
                 else {
-                    $prop.Value = $vmName
+                    $prop.Value = 'VM-REDACTED-UNKNOWN'
                 }
                 continue
             }
@@ -371,20 +195,11 @@ function Invoke-Redaction {
                     }
                 }
 
-                if ($Config.RedactInfraNames -and $InfraNameMap.Count -gt 0) {
-                    foreach ($infraName in $InfraNameMap.Keys | Sort-Object Length -Descending) {
-                        if ([string]::IsNullOrWhiteSpace($infraName)) { continue }
-                        $replacement = [string]$InfraNameMap[$infraName]
-                        $escapedInfraName = [regex]::Escape($infraName)
-                        $newValue = [regex]::Replace($newValue, $escapedInfraName, $replacement, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-                    }
-                }
-
-                if (($Config.RedactFqdnDomain -or $Config.RedactInfraFqdnDomain) -and -not (Test-SkipFqdnRedaction -ColumnName $name)) {
+                if ($Config.RedactFqdnDomain) {
                     $newValue = Remove-FqdnDomain -Value $newValue
                 }
-                if ($Config.RedactIPAddresses -and -not (Test-SkipIPRedaction -ColumnName $name)) {
-                    $newValue = Protect-IPAddresses -Value $newValue
+                if ($Config.RedactIPAddresses) {
+                    $newValue = Mask-IPAddresses -Value $newValue
                 }
                 if ($newValue -ne $value) {
                     $prop.Value = $newValue
@@ -486,16 +301,12 @@ Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false 
 $doRedactVMNames = [bool]$RedactVMNames
 $doRedactFqdnDomain = [bool]$RedactFqdnDomain
 $doRedactIPAddresses = [bool]$RedactIPAddresses
-$doRedactInfraNames = [bool]$RedactInfraNames
-$doRedactInfraFqdnDomain = [bool]$RedactInfraFqdnDomain
-$doPromptRedactionOptions = $doRedactVMNames -or $doRedactFqdnDomain -or $doRedactIPAddresses -or $doRedactInfraNames -or $doRedactInfraFqdnDomain
+$doPromptRedactionOptions = $doRedactVMNames -or $doRedactFqdnDomain -or $doRedactIPAddresses
 
 $redactionParamsProvided = (
     $PSBoundParameters.ContainsKey('RedactVMNames') -or
     $PSBoundParameters.ContainsKey('RedactFqdnDomain') -or
-    $PSBoundParameters.ContainsKey('RedactIPAddresses') -or
-    $PSBoundParameters.ContainsKey('RedactInfraNames') -or
-    $PSBoundParameters.ContainsKey('RedactInfraFqdnDomain')
+    $PSBoundParameters.ContainsKey('RedactIPAddresses')
 )
 
 Write-DMConsoleBanner
@@ -511,14 +322,8 @@ if ($doPromptRedactionOptions) {
     if (-not $PSBoundParameters.ContainsKey('RedactVMNames')) {
         $doRedactVMNames = Read-RedactionChoice -Prompt 'Redact VM names?' -Default $false -PromptColor Gray
     }
-    if ($doRedactVMNames -and -not $PSBoundParameters.ContainsKey('RedactInfraNames')) {
-        $doRedactInfraNames = Read-RedactionChoice -Prompt 'Redact ESXi/vCenter resource names?' -Default $false -PromptColor Gray
-    }
     if (-not $PSBoundParameters.ContainsKey('RedactFqdnDomain')) {
         $doRedactFqdnDomain = Read-RedactionChoice -Prompt 'Redact FQDN domain suffixes?' -Default $false -PromptColor Gray
-    }
-    if ($doRedactFqdnDomain -and -not $PSBoundParameters.ContainsKey('RedactInfraFqdnDomain')) {
-        $doRedactInfraFqdnDomain = Read-RedactionChoice -Prompt 'Redact ESXi/vCenter domain suffixes?' -Default $false -PromptColor Gray
     }
     if (-not $PSBoundParameters.ContainsKey('RedactIPAddresses')) {
         $doRedactIPAddresses = Read-RedactionChoice -Prompt 'Redact IP addresses?' -Default $false -PromptColor Gray
@@ -1452,12 +1257,12 @@ function Get-vSCSI {
        If($diskData -and -not (Test-IsTemplateLikeObject -vm $vm)){
             foreach ($gDisk in (Get-VMGuestDisk -VM $vm -ErrorAction SilentlyContinue)) {
 
-                # Map guest-visible disk/partition â†’ HardDisk â†’ SCSI controller
+                # Map guest-visible disk/partition → HardDisk → SCSI controller
                 $vDisk = Get-HardDisk -VMGuestDisk $gDisk -ErrorAction SilentlyContinue
                 $ctlr = Get-ScsiController -VM $vm |
                 Where-Object { $_.ExtensionData.Key -eq $vDisk.ExtensionData.ControllerKey }
 
-                # Compose a clean SCSI â€œbus:unitâ€ string
+                # Compose a clean SCSI “bus:unit” string
                 $SCSIbus = $ctlr.ExtensionData.BusNumber
                 $unit = $vDisk.ExtensionData.UnitNumber
                 $scsi = "$SCSIbus : $unit"
@@ -2583,22 +2388,32 @@ function Get-vDatastore {
     Write-InlineProgress -Activity 'vDatastore Processed' -Complete -ProgressCharacter ([char]9632) -ProgressFillCharacter ([char]9632) -ProgressFill ([char]183) -BarBracketStart $null -BarBracketEnd $null
 }
 
-
 function Get-VmwOrphan {
     param($Datastores, $about)
+
     $flags = New-Object VMware.Vim.FileQueryFlags
     $flags.FileSize = $true
     $flags.Modification = $true
+
     $generic = New-Object VMware.Vim.FileQuery
+
     $searchSpec = New-Object VMware.Vim.HostDatastoreBrowserSearchSpec
-    $searchSpec.Query = $generic
+    $searchSpec.Query = @($generic)
     $searchSpec.Details = $flags
-    $searchSpec.MatchPattern = @('*.vmdk', '*.vmx')
-    
-    $total = $datastores.Count
+    $searchSpec.MatchPattern = @(
+        '*.vmx',
+        '*.vmdk',
+        '*-flat.vmdk',
+        '*-delta.vmdk',
+        '*-ctk.vmdk'
+    )
+
+    $total = $Datastores.Count
     $i = 0
+
     foreach ($ds in $Datastores) {
         $i++
+
         Write-InlineProgress -Activity "Collecting vZombie $i of $total datastores" `
             -PercentComplete ([int](($i / $total) * 100)) `
             -ProgressCharacter ([char]9632) `
@@ -2606,54 +2421,69 @@ function Get-VmwOrphan {
             -ProgressFill ([char]183) `
             -BarBracketStart $null `
             -BarBracketEnd $null
-        if (($ds.Type -in 'VMFS', 'vsan') -and $ds.ExtensionData.Summary.MultipleHostAccess) {
 
-               
+        if (($ds.Type -in @('VMFS', 'vsan')) -and $ds.ExtensionData.Summary.MultipleHostAccess) {
 
             $browser = Get-View $ds.ExtensionData.Browser
-            $rootPath = '[' + $ds.Name + ']'
+            $rootPath = "[{0}]" -f $ds.Name
 
-            # ----- Build hash-set of all files referenced by VMs/Templates -----
+            # Build hash-set of files referenced by VMs/templates
             $vmFiles = @{}
-            Get-VM -Datastore $ds -ErrorAction SilentlyContinue | ForEach-Object {
-                $view = Get-View $_.Id
-                $view.LayoutEx.File | ForEach-Object {
-                    $_.Name.ToLower() | ForEach-Object { $vmFiles[$_] = $true }
+
+            foreach ($obj in @(
+                (Get-VM -Datastore $ds -ErrorAction SilentlyContinue)
+                (Get-Template -Datastore $ds -ErrorAction SilentlyContinue)
+            ) | Where-Object { $_ }) {
+
+                try {
+                    $view = Get-View $obj.Id -ErrorAction Stop
+                    foreach ($file in ($view.LayoutEx.File | Where-Object { $_.Name })) {
+                        $name = $file.Name.ToLower()
+
+                        # normalize duplicate slashes
+                        $name = $name -replace '(?<!:)/{2,}', '/'
+
+                        $vmFiles[$name] = $true
+                    }
                 }
-            }
-            Get-Template -Datastore $ds -ErrorAction SilentlyContinue | ForEach-Object {
-                $view = Get-View $_.Id
-                $view.LayoutEx.File | ForEach-Object {
-                    $_.Name.ToLower() | ForEach-Object { $vmFiles[$_] = $true }
+                catch {
                 }
             }
 
-
-            # ----- Enumerate every folder & file on the datastore -----
+            # Enumerate datastore contents
             $result = $browser.SearchDatastoreSubFolders($rootPath, $searchSpec)
 
-            foreach ($folder in $result) {
-                foreach ($f in $folder.File) {
-                    $full = "$($folder.FolderPath)/$($f.Path)"
-                    if (-not $vmFiles.ContainsKey($full.ToLower())) {
-                        # ------ OUTPUT orphaned file object ------
-                        [pscustomobject]@{
-                            Datastore       = $ds.Name
-                            FilePath        = $full
-                            FileSizeGB      = [math]::Round($f.FileSize / 1GB, 2)
-                            Modified        = $f.Modification
-                            "VI SDK Server" = $about.FullName
-                            "VI SDK UUID"   = $about.InstanceUuid
+            if ($result) {
+                foreach ($folder in $result) {
+                    foreach ($f in ($folder.File | Where-Object { $_ })) {
 
+                        # FolderPath already usually ends with /
+                        $full = "{0}{1}" -f $folder.FolderPath, $f.Path
+                        $full = $full.ToLower() -replace '(?<!:)/{2,}', '/'
+
+                        if (-not $vmFiles.ContainsKey($full)) {
+                            [pscustomobject]@{
+                                Datastore       = $ds.Name
+                                FilePath        = $full
+                                FileSizeGB      = if ($null -ne $f.FileSize) { [math]::Round($f.FileSize / 1GB, 2) } else { $null }
+                                Modified        = $f.Modification
+                                'VI SDK Server' = $about.FullName
+                                'VI SDK UUID'   = $about.InstanceUuid
+                            }
                         }
                     }
                 }
             }
         }
     }
-    Write-InlineProgress -Activity 'vZombie Processed' -Complete -ProgressCharacter ([char]9632) -ProgressFillCharacter ([char]9632) -ProgressFill ([char]183) -BarBracketStart $null -BarBracketEnd $null
-}
 
+    Write-InlineProgress -Activity 'vZombie Processed' -Complete `
+        -ProgressCharacter ([char]9632) `
+        -ProgressFillCharacter ([char]9632) `
+        -ProgressFill ([char]183) `
+        -BarBracketStart $null `
+        -BarBracketEnd $null
+}
 
 function Get-vLicense {
     param($about)
@@ -2746,44 +2576,41 @@ $redactionConfig = @{
     RedactVMNames = $doRedactVMNames
     RedactFqdnDomain = $doRedactFqdnDomain
     RedactIPAddresses = $doRedactIPAddresses
-    RedactInfraNames = $doRedactInfraNames
-    RedactInfraFqdnDomain = $doRedactInfraFqdnDomain
 }
 
-if ($redactionConfig.RedactVMNames -or $redactionConfig.RedactFqdnDomain -or $redactionConfig.RedactIPAddresses -or $redactionConfig.RedactInfraNames -or $redactionConfig.RedactInfraFqdnDomain) {
+if ($redactionConfig.RedactVMNames -or $redactionConfig.RedactFqdnDomain -or $redactionConfig.RedactIPAddresses) {
     Write-Host "Applying requested redaction options before Excel export..." -ForegroundColor Yellow
 
     $vmNameSheets = @('vInfo', 'vCPU', 'vMemory', 'vDisk', 'vPartition', 'vSCSI', 'vNetwork', 'vFloppy', 'vCD', 'vSnapshot', 'vTools')
     $vmNameMap = if ($redactionConfig.RedactVMNames) { New-VMRedactionMap -vms $vms } else { @{} }
-    $infraNameMap = if ($redactionConfig.RedactInfraNames -or $redactionConfig.RedactInfraFqdnDomain) { New-InfrastructureRedactionMap -EsxiNames ($ESXhosts | Select-Object -ExpandProperty Name) -VCenterName $vcenter } else { @{} }
 
-    $vinfo = Invoke-Redaction -Data $vinfo -SheetName 'vInfo' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vcpu = Invoke-Redaction -Data $vcpu -SheetName 'vCPU' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vmemory = Invoke-Redaction -Data $vmemory -SheetName 'vMemory' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vdisk = Invoke-Redaction -Data $vdisk -SheetName 'vDisk' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vpartition = Invoke-Redaction -Data $vpartition -SheetName 'vPartition' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vSCSI = Invoke-Redaction -Data $vSCSI -SheetName 'vSCSI' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vnetwork = Invoke-Redaction -Data $vnetwork -SheetName 'vNetwork' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vfloppy = Invoke-Redaction -Data $vfloppy -SheetName 'vFloppy' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vcd = Invoke-Redaction -Data $vcd -SheetName 'vCD' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vsnapshot = Invoke-Redaction -Data $vsnapshot -SheetName 'vSnapshot' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vtools = Invoke-Redaction -Data $vtools -SheetName 'vTools' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
+    $vinfo = Invoke-Redaction -Data $vinfo -SheetName 'vInfo' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vcpu = Invoke-Redaction -Data $vcpu -SheetName 'vCPU' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vmemory = Invoke-Redaction -Data $vmemory -SheetName 'vMemory' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vdisk = Invoke-Redaction -Data $vdisk -SheetName 'vDisk' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vpartition = Invoke-Redaction -Data $vpartition -SheetName 'vPartition' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vSCSI = Invoke-Redaction -Data $vSCSI -SheetName 'vSCSI' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vnetwork = Invoke-Redaction -Data $vnetwork -SheetName 'vNetwork' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vfloppy = Invoke-Redaction -Data $vfloppy -SheetName 'vFloppy' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vcd = Invoke-Redaction -Data $vcd -SheetName 'vCD' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vsnapshot = Invoke-Redaction -Data $vsnapshot -SheetName 'vSnapshot' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vtools = Invoke-Redaction -Data $vtools -SheetName 'vTools' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
 
-    $vrp = Invoke-Redaction -Data $vrp -SheetName 'vRP' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vcluster = Invoke-Redaction -Data $vcluster -SheetName 'vCluster' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vhost = Invoke-Redaction -Data $vhost -SheetName 'vHost' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vTLShost = Invoke-Redaction -Data $vTLShost -SheetName 'vTLShost' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vhba = Invoke-Redaction -Data $vhba -SheetName 'vHBA' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vnic = Invoke-Redaction -Data $vnic -SheetName 'vNIC' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vswitch = Invoke-Redaction -Data $vswitch -SheetName 'vSwitch' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vport = Invoke-Redaction -Data $vport -SheetName 'vPort' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $dvswitch = Invoke-Redaction -Data $dvswitch -SheetName 'dvSwitch' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $dvport = Invoke-Redaction -Data $dvport -SheetName 'dvPort' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vsc_vmk = Invoke-Redaction -Data $vsc_vmk -SheetName 'vSC_VMK' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vdatastore = Invoke-Redaction -Data $vdatastore -SheetName 'vDatastore' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vZombie = Invoke-Redaction -Data $vZombie -SheetName 'vZombieFiles' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vlicense = Invoke-Redaction -Data $vlicense -SheetName 'vLicense' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
-    $vhealth = Invoke-Redaction -Data $vhealth -SheetName 'vHealth' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
+    $vrp = Invoke-Redaction -Data $vrp -SheetName 'vRP' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vcluster = Invoke-Redaction -Data $vcluster -SheetName 'vCluster' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vhost = Invoke-Redaction -Data $vhost -SheetName 'vHost' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vTLShost = Invoke-Redaction -Data $vTLShost -SheetName 'vTLShost' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vhba = Invoke-Redaction -Data $vhba -SheetName 'vHBA' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vnic = Invoke-Redaction -Data $vnic -SheetName 'vNIC' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vswitch = Invoke-Redaction -Data $vswitch -SheetName 'vSwitch' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vport = Invoke-Redaction -Data $vport -SheetName 'vPort' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $dvswitch = Invoke-Redaction -Data $dvswitch -SheetName 'dvSwitch' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $dvport = Invoke-Redaction -Data $dvport -SheetName 'dvPort' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vsc_vmk = Invoke-Redaction -Data $vsc_vmk -SheetName 'vSC_VMK' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vdatastore = Invoke-Redaction -Data $vdatastore -SheetName 'vDatastore' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vZombie = Invoke-Redaction -Data $vZombie -SheetName 'vZombieFiles' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vlicense = Invoke-Redaction -Data $vlicense -SheetName 'vLicense' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
+    $vhealth = Invoke-Redaction -Data $vhealth -SheetName 'vHealth' -Config $redactionConfig -VMNameMap $vmNameMap -VMNameSheets $vmNameSheets
 }
 
 Write-Host "Creating worksheets layout..." -ForegroundColor Yellow
