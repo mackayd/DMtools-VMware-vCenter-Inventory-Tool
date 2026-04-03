@@ -33,6 +33,7 @@ This branch contains the current **beta** feature set, including:
 The collector script is production-useful, but the HTML explorer should still be considered **actively evolving**.
 
 This beta branch assumes the primary script names remain the same as the main branch, with the **branch** carrying beta status rather than renamed script files.
+> ![Alt text for accessibility](DMtools-Report-Example.gif)
 
 ---
 
