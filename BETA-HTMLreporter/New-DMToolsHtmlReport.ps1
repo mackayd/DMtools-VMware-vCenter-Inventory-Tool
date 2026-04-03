@@ -5,6 +5,7 @@ param(
     [string]$OutputHtml
 )
 
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
