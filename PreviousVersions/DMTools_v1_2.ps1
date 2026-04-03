@@ -4,7 +4,7 @@
     DMTools.ps1 - VMware vSphere Inventory and Reporting Tool
 
 .DESCRIPTION
-    This script connects to one or more VMware vCenter Servers and collects comprehensive inventory and configuration data from the entire vSphere environment. 
+    This script connects to a specified VMware vCenter Server and collects comprehensive inventory and configuration data from the entire vSphere environment. 
     It gathers detailed information about virtual machines, hosts, clusters, resource pools, datastores, networks, snapshots, orphaned files, hardware, and more.
     The collected data is exported into a multi-tabbed Excel workbook, with each worksheet representing a different aspect of the environment for easy review and analysis.
 
@@ -23,8 +23,8 @@
         - MAC addresses
         - API version strings
         - Change Version values / timestamps
-    - Prompts for one or more vCenter addresses and the required credentials, and allows the user to select the Excel export location via a GUI dialog.
-    - Connects to each requested vCenter and collects data on:
+    - Prompts for vCenter address and credentials, and allows the user to select the Excel export location via a GUI dialog.
+    - Connects to vCenter and collects data on:
         - VM inventory / summary information
         - CPU
         - memory
@@ -58,10 +58,10 @@
     - Disconnects from vCenter upon completion.
 
 .PARAMETER vCenter
-    One or more vCenter FQDNs or IP addresses to connect to. Multiple values can be supplied as an array or comma-separated list.
+    The FQDN or IP address of the vCenter Server to connect to.
 
 .PARAMETER Credential
-    Credentials with sufficient privileges to inventory the vSphere environment. When omitted, credentials are prompted for each vCenter.
+    Credentials with sufficient privileges to inventory the vSphere environment.
 
 .OUTPUTS
     Excel Workbook (.xlsx) with multiple worksheets, each containing a different inventory or configuration report.
@@ -77,7 +77,7 @@
     https://github.com/mackayd
 
 .VERSION
-    1.3
+    1.2
 
 .LICENSE
     MIT License
@@ -85,8 +85,6 @@
 #>
 
 param(
-    [string[]]$vCenter,
-    [System.Management.Automation.PSCredential]$Credential,
     [switch]$RedactVMNames,
     [switch]$RedactFqdnDomain,
     [switch]$RedactIPAddresses,
@@ -124,129 +122,6 @@ function Get-ExcelFilePath-GUI {
     else {
         Write-Host "Export canceled by user." -ForegroundColor Yellow
         exit 1
-    }
-}
-
-function ConvertTo-VCenterList {
-    param(
-        [AllowNull()]
-        [string[]]$Value
-    )
-
-    $servers = New-Object System.Collections.Generic.List[string]
-
-    foreach ($entry in @($Value)) {
-        if ([string]::IsNullOrWhiteSpace($entry)) { continue }
-
-        foreach ($candidate in ($entry -split '[,\r\n;]+')) {
-            $trimmed = $candidate.Trim()
-            if ([string]::IsNullOrWhiteSpace($trimmed)) { continue }
-            if (-not $servers.Contains($trimmed)) {
-                $servers.Add($trimmed)
-            }
-        }
-    }
-
-    return @($servers)
-}
-
-function Reset-DMCollectionCaches {
-    $cacheVariables = @(
-        'VMAdvancedSettingCache',
-        'VMGuestNetCache',
-        'ClusterRuleCache',
-        'VMContextCache',
-        'VMHostNameCache',
-        'VMPowerStateCache',
-        'VMToolsOSCache',
-        'PlatformToolsRequiredVersionResolved',
-        'PlatformToolsRequiredVersion',
-        'HostContextCache'
-    )
-
-    foreach ($name in $cacheVariables) {
-        Remove-Variable -Scope Script -Name $name -ErrorAction SilentlyContinue
-    }
-}
-
-function New-ReportDataStore {
-    $sheetNames = @(
-        'vInfo',
-        'vCPU',
-        'vMemory',
-        'vDisk',
-        'vPartition',
-        'vSCSI',
-        'vNetwork',
-        'vFloppy',
-        'vCD',
-        'vSnapshot',
-        'vTools',
-        'vRP',
-        'vCluster',
-        'vHost',
-        'vTLShost',
-        'vHBA',
-        'vNIC',
-        'vSwitch',
-        'vPort',
-        'dvSwitch',
-        'dvPort',
-        'vSC_VMK',
-        'vDatastore',
-        'vZombieFiles',
-        'vLicense',
-        'vHealth'
-    )
-
-    $store = [ordered]@{}
-    foreach ($sheetName in $sheetNames) {
-        $store[$sheetName] = New-Object System.Collections.ArrayList
-    }
-
-    return $store
-}
-
-function Add-SourceVCenterColumn {
-    param(
-        $Data,
-        [string]$VCenterName
-    )
-
-    if ($null -eq $Data) { return $Data }
-
-    foreach ($row in @($Data)) {
-        $sourceValue = $VCenterName
-        if ([string]::IsNullOrWhiteSpace($sourceValue) -and ($row.PSObject.Properties.Name -contains 'VI SDK Server')) {
-            $sourceValue = [string]$row.'VI SDK Server'
-        }
-
-        if ($row.PSObject.Properties.Name -contains 'Source vCenter') {
-            $row.'Source vCenter' = $sourceValue
-        }
-        else {
-            $row | Add-Member -NotePropertyName 'Source vCenter' -NotePropertyValue $sourceValue
-        }
-    }
-
-    return $Data
-}
-
-function Add-ReportRows {
-    param(
-        [Parameter(Mandatory = $true)]
-        [System.Collections.IDictionary]$Store,
-        [Parameter(Mandatory = $true)]
-        [string]$SheetName,
-        $Data,
-        [string]$VCenterName
-    )
-
-    if (-not $Store.Contains($SheetName) -or $null -eq $Data) { return }
-
-    $rows = Add-SourceVCenterColumn -Data $Data -VCenterName $VCenterName
-    foreach ($row in @($rows)) {
-        [void]$Store[$SheetName].Add($row)
     }
 }
 
@@ -402,15 +277,7 @@ function New-VMRedactionMap {
     param($vms)
     $map = @{}
     $index = 1
-    $vmNames = foreach ($vm in @($vms)) {
-        if ($vm -is [string]) {
-            $vm
-        }
-        elseif ($null -ne $vm -and $vm.PSObject.Properties.Name -contains 'Name') {
-            $vm.Name
-        }
-    }
-    foreach ($vmName in ($vmNames | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)) {
+    foreach ($vmName in ($vms | Select-Object -ExpandProperty Name | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)) {
         if ($vmName -match '^(?i)vCLS') { continue }
         $map[$vmName] = ('VM-REDACTED-{0:D4}' -f $index)
         $index++
@@ -421,7 +288,7 @@ function New-VMRedactionMap {
 function New-InfrastructureRedactionMap {
     param(
         [string[]]$EsxiNames,
-        [string[]]$VCenterName
+        [string]$VCenterName
     )
 
     $map = @{}
@@ -534,7 +401,7 @@ function Get-NormalizedColumnName {
 }
 
 function Get-OutputHeaderMap {
-    $map = @{
+    return @{
         'vInfo' = @('VM','Powerstate','Template','SRM Placeholder','Config status','DNS Name','Connection state','Guest state','Heartbeat','Consolidation Needed','PowerOn','Suspended To Memory','Suspend time','Suspend Interval','Creation date','Change Version','CPUs','Overall Cpu Readiness','Memory','Active Memory','NICs','Disks','Total disk capacity MiB','Fixed Passthru HotPlug','min Required EVC Mode Key','Latency Sensitivity','Op Notification Timeout','EnableUUID','CBT','Primary IP Address','Network #1','Network #2','Network #3','Network #4','Network #5','Network #6','Network #7','Network #8','Num Monitors','Video Ram KiB','Resource pool','Folder ID','Folder','vApp','DAS protection','FT State','FT Role','FT Latency','FT Bandwidth','FT Sec. Latency','Vm Failover In Progress','Provisioned MiB','In Use MiB','Unshared MiB','HA Restart Priority','HA Isolation Response','HA VM Monitoring','Cluster rule(s)','Cluster rule name(s)','Boot Required','Boot delay','Boot retry delay','Boot retry enabled','Boot BIOS setup','Reboot PowerOff','EFI Secure boot','Firmware','HW version','HW upgrade status','HW upgrade policy','HW target','Path','Log directory','Snapshot directory','Suspend directory','Annotation','com.vrlcm.snapshot','Datacenter','Cluster','Host','OS according to the configuration file','OS according to the VMware Tools','Customization Info','Guest Detailed Data','VM ID','SMBIOS UUID','VM UUID','VI SDK Server type','VI SDK API Version','VI SDK Server','VI SDK UUID')
         'vCPU' = @('VM','Powerstate','Template','SRM Placeholder','CPUs','Sockets','Cores p/s','Max','Overall','Level','Shares','Reservation','Entitlement','DRS Entitlement','Limit','Hot Add','Hot Remove','Numa Hotadd Exposed','Annotation','com.vrlcm.snapshot','Datacenter','Cluster','Host','Folder','OS according to the configuration file','OS according to the VMware Tools','VM ID','VM UUID','VI SDK Server','VI SDK UUID')
         'vMemory' = @('VM','Powerstate','Template','SRM Placeholder','Size MiB','Memory Reservation Locked To Max','Overhead','Max','Consumed','Consumed Overhead','Private','Shared','Swapped','Ballooned','Active','Entitlement','DRS Entitlement','Level','Shares','Reservation','Limit','Hot Add','Annotation','com.vrlcm.snapshot','Datacenter','Cluster','Host','Folder','OS according to the configuration file','OS according to the VMware Tools','VM ID','VM UUID','VI SDK Server','VI SDK UUID')
@@ -558,14 +425,6 @@ function Get-OutputHeaderMap {
         'vLicense' = @('Name','Key','Labels','Cost Unit','Total','Used','Expiration Date','Features','VI SDK Server','VI SDK UUID')
         'vHealth' = @('Name','Message','Message type','VI SDK Server','VI SDK UUID')
     }
-
-    foreach ($sheetName in @($map.Keys)) {
-        if ('Source vCenter' -notin @($map[$sheetName])) {
-            $map[$sheetName] = @($map[$sheetName]) + 'Source vCenter'
-        }
-    }
-
-    return $map
 }
 
 function Convert-ToOutputSchema {
@@ -668,25 +527,31 @@ if ($doPromptRedactionOptions) {
 
 Write-Host ''
 Write-DMConsoleSection -Title 'Connection'
-$vCenters = ConvertTo-VCenterList -Value $vCenter
-if ($vCenters.Count -eq 0) {
-    Write-Host 'vCenter Server(s) (FQDN or IP, comma-separated): ' -ForegroundColor Cyan -NoNewline
-    $vCenters = ConvertTo-VCenterList -Value (Read-Host)
+Write-Host 'vCenter Server (FQDN or IP): ' -ForegroundColor Cyan -NoNewline
+$vcenter = Read-Host
+$cred = Get-Credential -Message "DMTools connection for $vcenter"
+try {
+    Connect-VIServer -Server $vcenter -Credential $cred -ErrorAction Stop | Out-Null
+    Write-Host "Connected to $vcenter successfully." -ForegroundColor Green
 }
-
-if ($vCenters.Count -eq 0) {
-    Write-Host 'No vCenter servers were provided. Exiting.' -ForegroundColor Red
+catch {
+    Write-Host "Failed to connect to $vcenter. Exiting." -ForegroundColor Red
     exit 1
 }
-
-Write-Host ("Queued vCenter servers: {0}" -f ($vCenters -join ', ')) -ForegroundColor DarkGray
-
 $excelFile = Get-ExcelFilePath-GUI
-$DMexecstart = Get-Date
-$reportStore = New-ReportDataStore
-$allVMNames = New-Object System.Collections.Generic.List[string]
-$allEsxiNames = New-Object System.Collections.Generic.List[string]
-$allVCenterNames = New-Object System.Collections.Generic.List[string]
+$DMexecstart = Get-date
+# ---- ROOT DATA COLLECTION ----
+$si = Get-View ServiceInstance
+$about = $si.Content.About
+$vms = @(
+    Get-VM -ErrorAction SilentlyContinue
+    Get-Template -ErrorAction SilentlyContinue
+) | Sort-Object -Property Id -Unique
+$ESXhosts = Get-VMHost
+$clusters = Get-Cluster
+$rpools = Get-ResourcePool
+$datastores = Get-Datastore
+$VCC = $global:DefaultVIServer[0]
 
 
 function Get-SafeValue {
@@ -2541,8 +2406,8 @@ function Get-vPort {
 }
 
 function Get-vdvSwitch {
-    param($about, $Server)
-    $allDVS = if ($null -ne $Server) { Get-vdSwitch -Server $Server } else { Get-vdSwitch }
+    param($about)
+    $allDVS = Get-vdSwitch  
     $total = $allDVS.Count
     $i = 0    
     foreach ($dvs in $allDVS) {
@@ -2575,8 +2440,8 @@ function Get-vdvSwitch {
 }
 
 function Get-vdvPort {
-    param($about, $Server)
-    $allDVport = if ($null -ne $Server) { Get-VDPortgroup -Server $Server } else { Get-VDPortgroup }
+    param($about)
+    $allDVport = Get-VDPortgroup 
     $total = $allDVport.Count
     $i = 0    
     foreach ($dvpg in $allDVport) {
@@ -2791,8 +2656,8 @@ function Get-VmwOrphan {
 
 
 function Get-vLicense {
-    param($about, $Server)
-    foreach ($lic in $(Get-View -Id 'LicenseManager' -Server $Server).Licenses) {
+    param($about)
+    foreach ($lic in $(Get-View LicenseManager -Server $vcc).Licenses) {
         $expiration = ($lic.Properties | Where-Object { $_.Key -match 'expirationDate|expiration' } | Select-Object -ExpandProperty Value -First 1)
         if (-not $expiration -and $lic.Name -ne 'Product Evaluation') { $expiration = 'Never' }
 
@@ -2828,9 +2693,9 @@ function Get-vLicense {
 }
 
 function Get-vHealth {
-    param($about, $Server)
+    param($about)
    
-    foreach ($vcAlarm in Get-VIEvent -Server $Server -Start (Get-Date).AddDays(-14) -MaxSamples ([int]::MaxValue) | Where-Object { $_ -is [VMware.Vim.AlarmStatusChangedEvent] -and ($_.To -eq "Yellow" -or $_.To -eq "Red") -and $_.To -ne "Gray" }) {
+    foreach ($vcAlarm in Get-VIEvent -Start (Get-Date).AddDays(-14) -MaxSamples ([int]::MaxValue) | Where-Object { $_ -is [VMware.Vim.AlarmStatusChangedEvent] -and ($_.To -eq "Yellow" -or $_.To -eq "Red") -and $_.To -ne "Gray" }) {
      
         [PSCustomObject]@{
                 
@@ -2849,144 +2714,34 @@ function Get-vHealth {
 
 # ---- CALL FUNCTIONS AND EXPORT ALL TO EXCEL ----
 
-$totalVCenterCount = $vCenters.Count
-$currentVCenterIndex = 0
 
-foreach ($currentVCenter in $vCenters) {
-    $currentVCenterIndex++
-    $viConnection = $null
-
-    try {
-        Write-Host ''
-        Write-DMConsoleSection -Title ("Collecting vCenter {0} of {1}: {2}" -f $currentVCenterIndex, $totalVCenterCount, $currentVCenter)
-
-        $connectionCredential = if ($PSBoundParameters.ContainsKey('Credential')) { $Credential } else { Get-Credential -Message "DMTools connection for $currentVCenter" }
-        $viConnection = Connect-VIServer -Server $currentVCenter -Credential $connectionCredential -ErrorAction Stop
-        Write-Host ("Connected to {0} successfully." -f $viConnection.Name) -ForegroundColor Green
-
-        Reset-DMCollectionCaches
-
-        $si = Get-View -Id 'ServiceInstance' -Server $viConnection
-        $about = $si.Content.About
-        $vms = @(
-            Get-VM -Server $viConnection -ErrorAction SilentlyContinue
-            Get-Template -Server $viConnection -ErrorAction SilentlyContinue
-        ) | Sort-Object -Property Id -Unique
-        $ESXhosts = Get-VMHost -Server $viConnection
-        $clusters = Get-Cluster -Server $viConnection
-        $rpools = Get-ResourcePool -Server $viConnection
-        $datastores = Get-Datastore -Server $viConnection
-        $sourceVCenter = if (-not [string]::IsNullOrWhiteSpace($viConnection.Name)) { $viConnection.Name } else { $currentVCenter }
-
-        if (-not $allVCenterNames.Contains($sourceVCenter)) {
-            $allVCenterNames.Add($sourceVCenter)
-        }
-
-        foreach ($vmName in @($vms | Select-Object -ExpandProperty Name)) {
-            if (-not [string]::IsNullOrWhiteSpace($vmName) -and -not $allVMNames.Contains($vmName)) {
-                $allVMNames.Add($vmName)
-            }
-        }
-
-        foreach ($esxName in @($ESXhosts | Select-Object -ExpandProperty Name)) {
-            if (-not [string]::IsNullOrWhiteSpace($esxName) -and -not $allEsxiNames.Contains($esxName)) {
-                $allEsxiNames.Add($esxName)
-            }
-        }
-
-        $vinfo = Get-vInfo -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vcpu = Get-vCPU -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vmemory = Get-vMemory -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vdisk = Get-vDisk -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vpartition = Get-vPartition -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vSCSI = Get-vSCSI -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vnetwork = Get-vNetwork -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vfloppy = Get-vFloppy -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vcd = Get-vCD -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $vsnapshot = Get-vSnapshot -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
-        $platformToolsRequiredVersion = Get-PlatformToolsRequiredVersion -VMHosts $ESXhosts -VMs $vms
-        $vtools = Get-vTools -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext} -PlatformToolsRequiredVersion $platformToolsRequiredVersion
-        $vrp = Get-vRP -rpools $rpools -about $about
-        $vcluster = Get-vCluster -clusters $clusters -about $about
-        $vhost = Get-vHost -ESXhosts $ESXhosts -about $about
-        $vTLShost = Get-vTLShosts -ESXhosts $ESXhosts -about $about
-        $vhba = Get-vHBA -ESXhosts $ESXhosts -about $about
-        $vnic = Get-vNIC -ESXhosts $ESXhosts -about $about
-        $vswitch = Get-vSwitch -ESXhosts $ESXhosts -about $about
-        $vport = Get-vPort -ESXhosts $ESXhosts -about $about
-        $dvswitch = Get-vdvSwitch -about $about -Server $viConnection
-        $dvport = Get-vdvPort -about $about -Server $viConnection
-        $vsc_vmk = Get-vSC_VMK -ESXhosts $ESXhosts -about $about
-        $vdatastore = Get-vDatastore -datastores $datastores -about $about
-        $vZombie = Get-VmwOrphan -Datastores $datastores -about $about
-        $vlicense = Get-vLicense -about $about -Server $viConnection
-        $vhealth = Get-vHealth -about $about -Server $viConnection
-
-        Add-ReportRows -Store $reportStore -SheetName 'vInfo' -Data $vinfo -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vCPU' -Data $vcpu -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vMemory' -Data $vmemory -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vDisk' -Data $vdisk -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vPartition' -Data $vpartition -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vSCSI' -Data $vSCSI -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vNetwork' -Data $vnetwork -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vFloppy' -Data $vfloppy -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vCD' -Data $vcd -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vSnapshot' -Data $vsnapshot -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vTools' -Data $vtools -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vRP' -Data $vrp -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vCluster' -Data $vcluster -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vHost' -Data $vhost -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vTLShost' -Data $vTLShost -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vHBA' -Data $vhba -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vNIC' -Data $vnic -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vSwitch' -Data $vswitch -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vPort' -Data $vport -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'dvSwitch' -Data $dvswitch -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'dvPort' -Data $dvport -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vSC_VMK' -Data $vsc_vmk -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vDatastore' -Data $vdatastore -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vZombieFiles' -Data $vZombie -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vLicense' -Data $vlicense -VCenterName $sourceVCenter
-        Add-ReportRows -Store $reportStore -SheetName 'vHealth' -Data $vhealth -VCenterName $sourceVCenter
-    }
-    catch {
-        Write-Host ("Failed while collecting data from {0}: {1}" -f $currentVCenter, $_.Exception.Message) -ForegroundColor Red
-        throw
-    }
-    finally {
-        if ($null -ne $viConnection) {
-            Disconnect-VIServer -Server $viConnection -Force -Confirm:$false | Out-Null
-        }
-    }
-}
-
-$vinfo = @($reportStore['vInfo'])
-$vcpu = @($reportStore['vCPU'])
-$vmemory = @($reportStore['vMemory'])
-$vdisk = @($reportStore['vDisk'])
-$vpartition = @($reportStore['vPartition'])
-$vSCSI = @($reportStore['vSCSI'])
-$vnetwork = @($reportStore['vNetwork'])
-$vfloppy = @($reportStore['vFloppy'])
-$vcd = @($reportStore['vCD'])
-$vsnapshot = @($reportStore['vSnapshot'])
-$vtools = @($reportStore['vTools'])
-$vrp = @($reportStore['vRP'])
-$vcluster = @($reportStore['vCluster'])
-$vhost = @($reportStore['vHost'])
-$vTLShost = @($reportStore['vTLShost'])
-$vhba = @($reportStore['vHBA'])
-$vnic = @($reportStore['vNIC'])
-$vswitch = @($reportStore['vSwitch'])
-$vport = @($reportStore['vPort'])
-$dvswitch = @($reportStore['dvSwitch'])
-$dvport = @($reportStore['dvPort'])
-$vsc_vmk = @($reportStore['vSC_VMK'])
-$vdatastore = @($reportStore['vDatastore'])
-$vZombie = @($reportStore['vZombieFiles'])
-$vlicense = @($reportStore['vLicense'])
-$vhealth = @($reportStore['vHealth'])
-
+$vinfo = Get-vInfo      -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vcpu = Get-vCPU       -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vmemory = Get-vMemory    -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vdisk = Get-vDisk      -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vpartition = Get-vPartition -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vSCSI = Get-vSCSI  -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vnetwork = Get-vNetwork   -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vfloppy = Get-vFloppy    -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vcd = Get-vCD        -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$vsnapshot = Get-vSnapshot  -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext}
+$platformToolsRequiredVersion = Get-PlatformToolsRequiredVersion -VMHosts $ESXhosts -VMs $vms
+$vtools = Get-vTools     -vms $vms -about $about -GetVMContextFn ${function:Get-VMContext} -PlatformToolsRequiredVersion $platformToolsRequiredVersion
+$vrp = Get-vRP        -rpools $rpools -about $about -GetVMContextFn ${function:Get-VMContext}
+$vcluster = Get-vCluster   -clusters $clusters -about $about
+$vhost = Get-vHost      -ESXhosts $ESXhosts -about $about
+$vTLShost = Get-vTLShosts  -ESXhosts $ESXhosts -about $about
+$vhba = Get-vHBA       -ESXhosts $ESXhosts -about $about
+$vnic = Get-vNIC       -ESXhosts $ESXhosts -about $about
+$vswitch = Get-vSwitch    -ESXhosts $ESXhosts -about $about
+$vport = Get-vPort      -ESXhosts $ESXhosts -about $about
+$dvswitch = Get-vdvSwitch  -about $about
+$dvport = Get-vdvPort    -about $about
+$vsc_vmk = Get-vSC_VMK    -ESXhosts $ESXhosts -about $about
+$vdatastore = Get-vDatastore -datastores $datastores -about $about
+$vZombie = Get-VmwOrphan  -Datastores $datastores -about $about 
+$vlicense = Get-vLicense   -about $about
+$vhealth = Get-vHealth    -about $about
 $redactionConfig = @{
     RedactVMNames = $doRedactVMNames
     RedactFqdnDomain = $doRedactFqdnDomain
@@ -2999,8 +2754,8 @@ if ($redactionConfig.RedactVMNames -or $redactionConfig.RedactFqdnDomain -or $re
     Write-Host "Applying requested redaction options before Excel export..." -ForegroundColor Yellow
 
     $vmNameSheets = @('vInfo', 'vCPU', 'vMemory', 'vDisk', 'vPartition', 'vSCSI', 'vNetwork', 'vFloppy', 'vCD', 'vSnapshot', 'vTools')
-    $vmNameMap = if ($redactionConfig.RedactVMNames) { New-VMRedactionMap -vms $allVMNames } else { @{} }
-    $infraNameMap = if ($redactionConfig.RedactInfraNames -or $redactionConfig.RedactInfraFqdnDomain) { New-InfrastructureRedactionMap -EsxiNames $allEsxiNames -VCenterName $allVCenterNames } else { @{} }
+    $vmNameMap = if ($redactionConfig.RedactVMNames) { New-VMRedactionMap -vms $vms } else { @{} }
+    $infraNameMap = if ($redactionConfig.RedactInfraNames -or $redactionConfig.RedactInfraFqdnDomain) { New-InfrastructureRedactionMap -EsxiNames ($ESXhosts | Select-Object -ExpandProperty Name) -VCenterName $vcenter } else { @{} }
 
     $vinfo = Invoke-Redaction -Data $vinfo -SheetName 'vInfo' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
     $vcpu = Invoke-Redaction -Data $vcpu -SheetName 'vCPU' -Config $redactionConfig -VMNameMap $vmNameMap -InfraNameMap $infraNameMap -VMNameSheets $vmNameSheets
@@ -3108,6 +2863,7 @@ $vZombie    | Export-Excel $excelFile -WorksheetName 'vZombieFiles' -AutoSize -A
 $vlicense   | Export-Excel $excelFile -WorksheetName 'vLicense'  -AutoSize -AutoFilter -Append
 $vhealth    | Export-Excel $excelFile -WorksheetName 'vHealth'   -AutoSize -AutoFilter -Append
 
+Disconnect-VIServer -Force -Confirm:$false 
 Write-Host "DMTools Excel export complete: $excelFile" -ForegroundColor Green
 
 $DMexecend = Get-Date
