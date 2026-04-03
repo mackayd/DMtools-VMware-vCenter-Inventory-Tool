@@ -1503,7 +1503,29 @@ function Get-vPartition {
         $ctx = & $GetVMContextFn $vm
         $runtimeHostName = Get-VMRuntimeHostName -VM $vm
         $effectivePowerState = Get-VMEffectivePowerState -VM $vm
-        $toolsOsFullName = Get-VMEffectiveToolsOS -VM $vm
+        $toolsOsFullName = Get-VMEffectiveToolsOS -VM $vm        $osFamily = $null
+        try { $osFamily = $vm.ExtensionData.Guest.GuestFamily } catch {}
+        if (-not $osFamily) {
+            try {
+                $guestId = [string]$vm.ExtensionData.Config.GuestId
+                if ($guestId -match '^win') { $osFamily = 'windowsGuest' }
+                elseif ($guestId -match 'linux') { $osFamily = 'linuxGuest' }
+                else { $osFamily = 'otherGuest' }
+            }
+            catch {
+                $osFamily = 'otherGuest'
+            }
+        }
+
+        $diskEnableUuid = $null
+        try {
+            $diskEnableUuid = ($vm | Get-AdvancedSetting -Name 'disk.EnableUUID' -ErrorAction Stop).Value
+        }
+        catch {
+            $diskEnableUuid = $null
+        }
+
+        $uuidDisabledWarning = ($osFamily -eq 'windowsGuest' -and [string]$diskEnableUuid -ne 'TRUE')
 
         $guestDiskMap = @{}
         try {
@@ -1511,7 +1533,13 @@ function Get-vPartition {
                 foreach ($guestDisk in (Get-VMGuestDisk -VM $vm -ErrorAction SilentlyContinue)) {
                     $matchedHardDisk = Get-HardDisk -VMGuestDisk $guestDisk -ErrorAction SilentlyContinue
                     if ($guestDisk.DiskPath) {
-                        $guestDiskMap[$guestDisk.DiskPath] = $matchedHardDisk
+                        $guestDiskMap[$guestDisk.DiskPath] = [ordered]@{
+                            HardDisk = $matchedHardDisk
+                            DiskKey  = if ($matchedHardDisk) { $matchedHardDisk.ExtensionData.Key } else { $null }
+                            VMDK     = if ($matchedHardDisk) { $matchedHardDisk.Name } else { $null }
+                            VMDKPath = if ($matchedHardDisk) { $matchedHardDisk.Filename } else { $null }
+                            VMDKUuid = if ($matchedHardDisk) { $matchedHardDisk.ExtensionData.Backing.Uuid } else { $null }
+                        }
                     }
                 }
             }
@@ -1530,8 +1558,15 @@ function Get-vPartition {
                     Powerstate                               = $effectivePowerState
                     Template                                 = $ed.Config.Template
                     "SRM Placeholder"                        = $false
-                    DiskKey                                  = if ($matchedDisk) { $matchedDisk.ExtensionData.Key } else { $null }
+                    DiskKey                                  = if ($matchedDisk) { $matchedDisk.DiskKey } else { $null }
+                    "Partition Path"                         = if ($uuidDisabledWarning -and $gdisk.Path) { "$($gdisk.Path) <disk.enableuuid disabled>" } elseif ($gdisk.Path) { $gdisk.Path } else { $gdisk.DiskPath }
                     Disk                                     = $gdisk.DiskPath
+                    VMDK                                     = if ($matchedDisk) { $matchedDisk.VMDK } else { $null }
+                    "VMDK Path"                              = if ($matchedDisk) { $matchedDisk.VMDKPath } else { $null }
+                    "VMDK UUID"                              = if ($matchedDisk) { $matchedDisk.VMDKUuid } else { $null }
+                    "OS Family"                              = $osFamily
+                    "Disk.EnableUUID"                        = $diskEnableUuid
+                    "Mapping Available"                      = [bool]$matchedDisk
                     CapacityMB                               = [math]::Round($gdisk.Capacity / 1MB, 0)
                     ConsumedMB                               = [math]::Round((($gdisk.Capacity - $gdisk.FreeSpace) / 1MB), 0)
                     FreeMB                                   = [math]::Round($gdisk.FreeSpace / 1MB, 0)

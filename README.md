@@ -1,189 +1,145 @@
 # DMtools — VMware vCenter Inventory Tool
 
-PowerShell-based inventory tool for **VMware vCenter** environments. It collects data across clusters, hosts, VMs, datastores, networking (VSS/vDS), policies, snapshots, tags, and more — and outputs human-friendly Excel reports.
+PowerShell-based inventory tool for **VMware vCenter** environments. DMtools collects broad inventory and configuration data across the vSphere stack and exports it to a **multi-tab Excel workbook**. The beta branch also includes a separate **HTML inventory explorer** that turns the Excel output into an interactive, browser-based report.
 
 > **Background & motivation**  
-> DMtools was inspired by a popular executable-based VMware inventory utility. However, many high-security or locked-down environments prohibit running unsigned executables. By delivering an **auditable PowerShell script**, DMtools offers similar capabilities while allowing **source review**, change control, and easier security approval.
+> DMtools was inspired by executable-based VMware inventory utilities, but many locked-down or security-conscious environments do not allow unsigned binaries. By delivering the tooling as **auditable PowerShell**, DMtools supports source review, change control, code signing, and easier security approval.
 
 <p align="left">
   <img alt="PowerShell" src="https://img.shields.io/badge/PowerShell-7+-blue">
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20PowerCLI-lightgrey">
   <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
-  <img alt="Status" src="https://img.shields.io/badge/Status-Stable-brightgreen">
+  <img alt="Status" src="https://img.shields.io/badge/Status-Beta-orange">
 </p>
 
 ---
 
-## ✨ What it does
+## Beta branch status
 
-- Connects to **one or more VMware vCenter servers** and inventories the environment end-to-end.
-- Exports a **single Excel workbook** (`.xlsx`) with multiple tabs covering major inventory and configuration areas.
-- When multiple vCenters are supplied, merges all collected rows into the same worksheets and adds a **`Source vCenter`** column so every row can be traced back to its source server.
-- Supports either a **shared credential** across all vCenters or **interactive prompting per vCenter**.
-- Offers **optional export redaction** to support safer report sharing.
-- Shows clear progress for each collection phase.
-- Installs missing dependencies (current user scope) on first run.
+This branch contains the current **beta** feature set, including:
 
-> See the script header for the full list of worksheets and fields.
->
-> ![Alt text for accessibility](ScriptExecution.png)
+- the latest **multi-vCenter** Excel inventory collection
+- improved **guided prompts** and **redaction controls**
+- expanded **VM / partition / VMware Tools** data collection
+- a separate **HTML report generator** with:
+  - inventory overview cards
+  - detail views
+  - cross-linked object navigation
+  - topology / object explorer views
+  - VM template support
+  - partition-to-datastore visualisation
+  - entity-specific filters in **Show All** views
+
+The collector script is production-useful, but the HTML explorer should still be considered **actively evolving**.
 
 ---
 
-## 📦 Requirements
+## Repository contents
 
-- Windows with **PowerShell 7+**
-  - **PowerShell 5.1+** is also supported, though you may see yellow deprecation warnings for some commands
-- Network access to each target vCenter Server
+```text
+DMtools-VMware-vCenter-Inventory-Tool/
+├─ DMtools-v1_3_BETA.ps1         # Main inventory collection script
+├─ New-DMToolsHtmlReport.ps1     # HTML report generator
+├─ README.md                     # You are here
+├─ LICENSE                       # MIT
+└─ .gitignore
+```
+
+---
+
+## What the main script does
+
+`DMtools-v1_3_BETA.ps1` connects to one or more VMware vCenter servers and collects detailed data across the environment.
+
+### Core capabilities
+
+- Connects to **one or more vCenter Servers**
+- Collects inventory across:
+  - VMs and templates
+  - CPU, memory, disks, partitions, SCSI
+  - VM networking
+  - snapshots
+  - VMware Tools
+  - resource pools
+  - clusters
+  - hosts
+  - HBAs
+  - physical NICs
+  - vSwitches / port groups
+  - distributed switches / distributed ports
+  - VMkernel adapters
+  - datastores
+  - orphaned files
+  - licenses
+  - recent health alarms
+- Exports a **single Excel workbook** with one worksheet per inventory category
+- Supports **multiple vCenters in one run**
+- Adds a **`Source vCenter`** column so rows can be traced back to the originating platform
+- Supports optional **export redaction**
+- Uses cached platform-wide VMware Tools version detection
+- Marks VMware Tools Required Version as **`Unmanaged`** where appropriate
+- Provides a more guided console workflow with clearer prompts and coloured status output
+
+---
+
+## Requirements
+
+### Main inventory script
+
+- Windows
+- **PowerShell 7+**
+  - PowerShell 5.1 is also usable, though newer PowerShell is preferred
+- Network access to each target vCenter
 - Privileges sufficient to read inventory across the required scope
-- The following PowerShell modules will be installed automatically if missing:
+- The following modules are required:
   - `VMware.PowerCLI`
   - `ImportExcel`
   - `psInlineProgress`
 
-If your environment restricts on-the-fly installs, pre-stage the modules in your profile or an internal PSGallery mirror.
+The script will attempt to install missing modules in **CurrentUser** scope if needed.
+
+### HTML report generator
+
+- Windows PowerShell / PowerShell 7
+- `ImportExcel`
+- A workbook generated by DMtools
+- A modern web browser
 
 ---
 
-## 🚀 Quick start
+## Quick start
 
-1. Download `DMtools.ps1` from this repository.
-2. (Optional) Unblock the script if your browser marked it as downloaded from the internet:
-   ```powershell
-   Unblock-File .\DMtools.ps1
-   ```
-3. Run the tool:
-   ```powershell
-   .\DMtools.ps1
-   ```
+### 1. Run the inventory collector
+
+```powershell
+.\DMtools-v1_3_BETA.ps1
+```
 
 ### Example: single vCenter
 
 ```powershell
-.\DMtools.ps1 -vCenter vcsa01.example.local
+.\DMtools-v1_3_BETA.ps1 -vCenter vcsa01.example.local
 ```
 
-### Example: multiple vCenters with one shared credential
+### Example: multiple vCenters with a shared credential
 
 ```powershell
 $cred = Get-Credential
-.\DMtools.ps1 -vCenter vcsa01.example.local,vcsa02.example.local -Credential $cred
+.\DMtools-v1_3_BETA.ps1 -vCenter vcsa01.example.local,vcsa02.example.local -Credential $cred
 ```
 
 ### Example: multiple vCenters with interactive prompts
 
 ```powershell
-.\DMtools.ps1 -vCenter vc8.house.local,t-vc8.house.local
+.\DMtools-v1_3_BETA.ps1 -vCenter vc8.house.local,t-vc8.house.local
 ```
 
-When prompted:
+When prompted, the script can:
+- ask whether redaction is required before showing detailed redaction questions
+- prompt for per-vCenter credentials if `-Credential` is omitted
+- let you choose the output Excel file path via GUI
 
-- Enter one or more **vCenter FQDNs/IPs** if not already supplied
-- Choose whether **redaction** should be applied to the export
-- Provide either:
-  - a single reusable credential with `-Credential`, or
-  - credentials interactively as each vCenter is processed
-- Choose the destination for the Excel export
-
-The script will connect to each requested vCenter, collect the data, and write one consolidated Excel workbook with one tab per report.
-
----
-
-## 🧩 Multi-vCenter support
-
-DMtools supports collecting inventory from **multiple vCenters in a single execution** and writing all results into **one consolidated Excel report**.
-
-### How it works
-
-- Pass one or more vCenters to the `-vCenter` parameter
-- DMtools processes each vCenter in sequence
-- All collected data is merged into one workbook
-- Each exported row includes a **`Source vCenter`** column
-- Consumers can filter workbook data by the originating vCenter when required
-
-This is especially useful for:
-
-- multi-site environments
-- estates with separate production, management, and test vCenters
-- migration and comparison exercises
-- centralised reporting across multiple vSphere platforms
-
----
-
-## 🔐 Authentication options
-
-DMtools supports two main connection models.
-
-### 1. Shared credential across all vCenters
-
-If the same credential works across all target vCenters, pass it once using `-Credential`.
-
-```powershell
-$cred = Get-Credential
-.\DMtools.ps1 -vCenter vc8.house.local,t-vc8.house.local -Credential $cred
-```
-
-### 2. Prompt per vCenter
-
-If `-Credential` is omitted, DMtools prompts as it connects to each vCenter. This is useful when:
-
-- different vCenters require different credentials
-- you do not want to pre-store credentials in a variable
-- operators prefer an interactive workflow
-
----
-
-## 🕶️ Redaction support
-
-Before collection begins, DMtools offers optional redaction for the Excel export. This is useful when the report needs to be shared outside the core administration team.
-
-Typical redaction areas include:
-
-- VM names
-- VM FQDN domain suffixes
-- IP addresses
-- ESXi / vCenter resource names
-- ESXi / vCenter FQDN domain suffixes
-
-The script includes logic intended to avoid corrupting non-target values such as MAC addresses, API version values, and timestamps.
-
----
-
-## 🔐 Why a script (not an EXE)?
-
-High-security environments frequently block unsigned executables. A PowerShell script:
-
-- is **transparent** and **reviewable**
-- can be **code-signed** with your organization’s certificate
-- fits neatly into existing change-control and allow-listing workflows
-- is easier to inspect, version, diff, and adapt than a compiled binary
-
-This makes DMtools particularly useful in regulated or security-conscious environments.
-
----
-
-## 🧭 Usage notes
-
-- Run from a workstation with access to the target vCenters and adequate RBAC permissions.
-- For large environments, collection may take several minutes; progress is displayed inline.
-- Output Excel files can be quite large; they are **git-ignored** by default (`*.xlsx`).
-- When collecting from multiple vCenters, use the **`Source vCenter`** column in Excel to filter or separate the data by source platform.
-
----
-
-## 📄 Output
-
-DMtools creates a **single `.xlsx` workbook** containing multiple worksheets.
-
-### Output characteristics
-
-- one workbook per run
-- one worksheet per inventory category
-- consolidated data from all requested vCenters
-- a trailing **`Source vCenter`** column on each exported row
-- suited to audit, migration assessment, discovery, CMDB population, and documentation tasks
-
-Example output filename pattern:
+The output workbook name follows this pattern:
 
 ```text
 DMTools-Export-YYYYMMDD-HHMMSS.xlsx
@@ -191,77 +147,218 @@ DMTools-Export-YYYYMMDD-HHMMSS.xlsx
 
 ---
 
-## 🛠 Repository layout
+## Multi-vCenter support
 
-```text
-DMtools-VMware-vCenter-Inventory-Tool/
-├─ DMtools.ps1               # The tool (this repo’s core)
-├─ LICENSE                   # MIT
-├─ README.md                 # You are here
-└─ .gitignore                # Ignore build artifacts and exports
-```
+DMtools supports collecting inventory from **multiple vCenters in one execution** and merging the data into a **single consolidated workbook**.
+
+### How it works
+
+- pass one or more targets to `-vCenter`
+- DMtools processes each vCenter in sequence
+- collected rows are merged into the same worksheets
+- each exported row includes a **`Source vCenter`** column
+
+This is useful for:
+- multi-site estates
+- separate prod / test / management vCenters
+- migration or comparison work
+- centralised reporting
 
 ---
 
-## 🔏 Code signing (optional but recommended)
+## Redaction support
 
-If your organization requires signed scripts:
+Before collection begins, DMtools can apply optional export redaction.
+
+Available redaction areas include:
+- VM names
+- VM FQDN domain suffixes
+- IP addresses
+- ESXi / vCenter resource names
+- ESXi / vCenter FQDN domain suffixes
+
+The script also contains logic intended to avoid corrupting non-target values such as:
+- MAC addresses
+- API version values
+- timestamps / change-version style fields
+
+Special handling is included so **vCLS** VM names are not unnecessarily redacted as normal workload VM names.
+
+---
+
+## HTML inventory explorer
+
+`New-DMToolsHtmlReport.ps1` converts a DMtools Excel workbook into a self-contained **interactive HTML report**.
+
+### What it provides
+
+- summary / KPI style landing view
+- **Show All** overview cards
+- detail views for:
+  - VMs
+  - templates
+  - hosts
+  - clusters
+  - datastores
+  - networks
+- object relationship navigation
+- topology / object explorer view with:
+  - expandable grouped objects
+  - clickable object traversal
+  - host / VM / datastore / network relationships
+- VM filesystem visualisation using **vPartition** data
+- warning nodes where additional VM settings are needed for full partition mapping
+- entity-specific filters in **Show All** views
+
+### Current expectation
+
+The HTML generator works best with a workbook representing a **single vCenter**.  
+The collector supports multi-vCenter exports, but cross-vCenter disambiguation in the HTML explorer is still an area for further refinement.
+
+---
+
+## Generate the HTML report
+
+Run the HTML generator against a workbook produced by DMtools:
 
 ```powershell
-# Import your code-signing certificate from the Windows store
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-Set-AuthenticodeSignature -FilePath .\DMtools.ps1 -Certificate $cert
+.\New-DMToolsHtmlReport.ps1 -InputWorkbook .\DMTools-Export-20260403-063319.xlsx
+```
+
+Or specify the output path explicitly:
+
+```powershell
+.\New-DMToolsHtmlReport.ps1 `
+  -InputWorkbook .\DMTools-Export-20260403-063319.xlsx `
+  -OutputHtml .\DMTools-Export-20260403-063319-InventoryReport.html
 ```
 
 ---
 
-## ✅ Recommended use cases
+## Partition mapping notes
+
+The beta branch includes partition / filesystem reporting so the HTML explorer can visualise how guest-visible filesystems relate back to virtual disks and datastores.
+
+### Current behaviour
+
+- Linux guests generally map cleanly when VMware Tools can provide the required data
+- Windows guests may require additional VM configuration for full mapping
+- where mapping data is unavailable, the HTML report can surface a warning rather than breaking the object explorer view
+
+This makes the partition view useful for:
+- storage audits
+- migration planning
+- guest-to-VMDK correlation
+- visual validation of VM filesystem layout
+
+---
+
+## Suggested workflow
+
+1. Run `DMtools-v1_3_BETA.ps1`
+2. Review the Excel workbook
+3. Run `New-DMToolsHtmlReport.ps1`
+4. Open the generated HTML in a browser
+5. Use:
+   - **Show All** views for browsing
+   - object detail pages for drill-down
+   - the topology / object explorer for relationship visualisation
+
+---
+
+## Output summary
+
+### Excel workbook
+Designed for:
+- audit
+- discovery
+- migration assessment
+- documentation
+- CMDB population support
+
+### HTML report
+Designed for:
+- rapid visual exploration
+- object relationship browsing
+- workload / host / datastore correlation
+- stakeholder walkthroughs
+- quick validation of topology and placement
+
+---
+
+## Why a script instead of an EXE?
+
+A PowerShell script:
+- is transparent and reviewable
+- can be code-signed
+- fits better into change-control workflows
+- is easier to diff, adapt, and inspect than a compiled executable
+
+That is especially valuable in regulated or security-conscious environments.
+
+---
+
+## Code signing (optional but recommended)
+
+If your environment requires signed PowerShell scripts:
+
+```powershell
+$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
+Set-AuthenticodeSignature -FilePath .\DMtools-v1_3_BETA.ps1 -Certificate $cert
+Set-AuthenticodeSignature -FilePath .\New-DMToolsHtmlReport.ps1 -Certificate $cert
+```
+
+---
+
+## Recommended use cases
 
 DMtools is well suited to:
-
 - estate discovery
-- technical due diligence
 - migration planning
+- technical due diligence
 - audit preparation
 - CMDB population support
 - operational documentation
+- storage / partition mapping review
 - platform comparison across multiple vCenters
-- filtered reporting for management, test, and production estates
+- interactive infrastructure walkthroughs using the HTML report
 
 ---
 
-## 🐞 Issues & contributions
+## FAQ
 
-- Found a bug or want a new worksheet or column? Open an **Issue** with details such as:
+**Q: Which modules are required?**  
+A: The collector requires `VMware.PowerCLI`, `ImportExcel`, and `psInlineProgress`. The HTML generator requires `ImportExcel`.
+
+**Q: Does the collector support multiple vCenters?**  
+A: Yes. It merges the collected rows into one workbook and appends a `Source vCenter` column.
+
+**Q: Does the HTML report fully support multi-vCenter workbooks?**  
+A: Not yet in every case. For now, treat single-vCenter input as the safest path for the HTML explorer.
+
+**Q: Can I reuse one credential for every vCenter?**  
+A: Yes. Pass `-Credential` if the same account works across all targets. Otherwise the script can prompt per vCenter.
+
+**Q: Can the HTML report be shared without the PowerShell scripts?**  
+A: Yes. The generated HTML is self-contained and can be opened directly in a browser.
+
+---
+
+## Issues and contributions
+
+- Found a bug or want a new worksheet, column, or explorer feature? Open an **Issue**
+- Please include useful details such as:
   - PowerShell version
   - PowerCLI version
   - vCenter version
-  - error text
-- PRs are welcome. Please run `PSScriptAnalyzer` and include a sanitised sample of the Excel output where relevant.
-- This project follows the **MIT License**.
+  - sanitised sample output
+  - error text / screenshots where relevant
+
+PRs are welcome.
 
 ---
 
-## ❓FAQ
-
-**Q: Which modules are required?**  
-A: `VMware.PowerCLI`, `ImportExcel`, and `psInlineProgress`. The script will install them for the current user if missing, or you can pre-install them per your policy.
-
-**Q: Where does the data go?**  
-A: Into one `.xlsx` file with multiple tabs, one per inventory category.
-
-**Q: What happens when I use multiple vCenters?**  
-A: DMtools merges the collected rows into the same workbook tabs and appends a `Source vCenter` column so the origin of each row remains clear.
-
-**Q: Can I reuse one credential for every vCenter?**  
-A: Yes. Pass `-Credential` if the same account works across all targets. Otherwise, omit it and the script will prompt per vCenter.
-
-**Q: Can I filter scope to a subset of the platform?**  
-A: Use your vSphere permissions and connection scope. Additional filtering options can be discussed through issues or future enhancements.
-
----
-
-## 🙌 Credits
+## Credits
 
 - Original author: **Drew Mackay** ([@mackayd](https://github.com/mackayd))
-- Thanks to the VMware community tools that inspired this script.
+- Thanks to the wider VMware community tools that inspired the project
