@@ -32,13 +32,15 @@ This branch contains the current **beta** feature set, including:
 
 The collector script is production-useful, but the HTML explorer should still be considered **actively evolving**.
 
+This beta branch assumes the primary script names remain the same as the main branch, with the **branch** carrying beta status rather than renamed script files.
+
 ---
 
 ## Repository contents
 
 ```text
 DMtools-VMware-vCenter-Inventory-Tool/
-├─ DMtools-v1_3_BETA.ps1         # Main inventory collection script
+├─ DMtools.ps1                   # Main inventory collection script
 ├─ New-DMToolsHtmlReport.ps1     # HTML report generator
 ├─ README.md                     # You are here
 ├─ LICENSE                       # MIT
@@ -49,7 +51,7 @@ DMtools-VMware-vCenter-Inventory-Tool/
 
 ## What the main script does
 
-`DMtools-v1_3_BETA.ps1` connects to one or more VMware vCenter servers and collects detailed data across the environment.
+`DMtools.ps1` connects to one or more VMware vCenter servers and collects detailed data across the environment.
 
 ### Core capabilities
 
@@ -112,26 +114,26 @@ The script will attempt to install missing modules in **CurrentUser** scope if n
 ### 1. Run the inventory collector
 
 ```powershell
-.\DMtools-v1_3_BETA.ps1
+.\DMtools.ps1
 ```
 
 ### Example: single vCenter
 
 ```powershell
-.\DMtools-v1_3_BETA.ps1 -vCenter vcsa01.example.local
+.\DMtools.ps1 -vCenter vcsa01.example.local
 ```
 
 ### Example: multiple vCenters with a shared credential
 
 ```powershell
 $cred = Get-Credential
-.\DMtools-v1_3_BETA.ps1 -vCenter vcsa01.example.local,vcsa02.example.local -Credential $cred
+.\DMtools.ps1 -vCenter vcsa01.example.local,vcsa02.example.local -Credential $cred
 ```
 
 ### Example: multiple vCenters with interactive prompts
 
 ```powershell
-.\DMtools-v1_3_BETA.ps1 -vCenter vc8.house.local,t-vc8.house.local
+.\DMtools.ps1 -vCenter vc8.house.local,t-vc8.house.local
 ```
 
 When prompted, the script can:
@@ -255,7 +257,7 @@ This makes the partition view useful for:
 
 ## Suggested workflow
 
-1. Run `DMtools-v1_3_BETA.ps1`
+1. Run `DMtools.ps1`
 2. Review the Excel workbook
 3. Run `New-DMToolsHtmlReport.ps1`
 4. Open the generated HTML in a browser
@@ -304,7 +306,7 @@ If your environment requires signed PowerShell scripts:
 
 ```powershell
 $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-Set-AuthenticodeSignature -FilePath .\DMtools-v1_3_BETA.ps1 -Certificate $cert
+Set-AuthenticodeSignature -FilePath .\DMtools.ps1 -Certificate $cert
 Set-AuthenticodeSignature -FilePath .\New-DMToolsHtmlReport.ps1 -Certificate $cert
 ```
 
