@@ -5,6 +5,7 @@ PowerShell-based inventory tool for **VMware vCenter** environments. It collects
 > **Background & motivation**  
 > DMtools was inspired by a popular executable-based VMware inventory utility. However, many high-security or locked-down environments prohibit running unsigned executables. By delivering an **auditable PowerShell script**, DMtools offers similar capabilities while allowing **source review**, change control, and easier security approval.
 
+### Beta branch: New HTML Report Feature
 <p align="left">
   <img alt="PowerShell" src="https://img.shields.io/badge/PowerShell-7+-blue">
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20PowerCLI-lightgrey">
